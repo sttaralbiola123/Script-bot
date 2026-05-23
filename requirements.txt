@@ -1,0 +1,5 @@
+discord.py
+openai
+aiohttp
+flask
+python-dotenv
