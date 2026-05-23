@@ -8,12 +8,12 @@ from flask import Flask
 import threading
 import asyncio
 
-# ====================== FLASK (for Render) ======================
+# ====================== FLASK ======================
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "<h1>✅ Roblox Script Bot is Running on Render!</h1>"
+    return "✅ Bot is running!"
 
 def run_flask():
     app.run(host='0.0.0.0', port=5000, debug=False)
@@ -27,7 +27,7 @@ client = AsyncOpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# ====================== DISCORD SETUP ======================
+# ====================== DISCORD ======================
 intents = discord.Intents.default()
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
@@ -48,10 +48,9 @@ async def check_link_alive(session, url):
     except:
         return None
 
-
-# ====================== SEARCH FUNCTION ======================
+# ====================== SEARCH ======================
 async def real_web_search(game: str):
-    query = f"{game} roblox script delta OR solara OR wave"
+    query = f"{game} roblox script pastebin OR scriptblox"
     url = f"https://html.duckduckgo.com/html/?q={query.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0"}
 
@@ -60,42 +59,30 @@ async def real_web_search(game: str):
             async with session.get(url, headers=headers) as resp:
                 text = await resp.text()
 
-                # Extract links
                 raw_links = re.findall(
                     r'https?://(?:www\.)?(?:pastebin\.com|scriptblox\.com)[^\s"<>]+',
                     text
                 )
 
-                # Remove duplicates
                 raw_links = list(dict.fromkeys(raw_links))
 
-                # =========================
-                # SMART FILTERING
-                # =========================
-                filtered_links = []
+                filtered = []
                 for link in raw_links:
-                    link_lower = link.lower()
+                    l = link.lower()
 
-                    # ❌ Skip junk
-                    if any(x in link_lower for x in [
-                        "login", "signup", "register",
-                        "terms", "privacy", "advertise"
+                    if any(x in l for x in [
+                        "login","signup","register",
+                        "terms","privacy","advertise"
                     ]):
                         continue
 
-                    # ✅ Keep only useful pages
-                    if "pastebin.com/" in link_lower or "scriptblox.com/script" in link_lower:
-                        filtered_links.append(link)
+                    if "pastebin.com/" in l or "scriptblox.com/script" in l:
+                        filtered.append(link)
 
-                # =========================
-                # CHECK IF ALIVE
-                # =========================
-                tasks = [check_link_alive(session, link) for link in filtered_links[:10]]
+                tasks = [check_link_alive(session, link) for link in filtered[:10]]
                 results = await asyncio.gather(*tasks)
 
-                alive_links = [r for r in results if r]
-
-                return alive_links[:5]
+                return [r for r in results if r][:5]
 
     except Exception as e:
         print("Search error:", e)
@@ -106,106 +93,98 @@ class ScriptView(discord.ui.View):
     def __init__(self, script_text: str, links: list, game: str):
         super().__init__(timeout=300)
         self.script_text = script_text
-        self.links = links or []
+        self.links = links
         self.game = game
 
-    @discord.ui.button(label="📜 Get Full Script", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="📜 Get Info", style=discord.ButtonStyle.green)
     async def get_script(self, interaction: discord.Interaction, button: discord.ui.Button):
-        content = self.script_text[:1900]
-        await interaction.response.send_message(f"```lua\n{content}\n```", ephemeral=True)
+        msg = self.script_text[:1900]
+        await interaction.response.send_message(msg, ephemeral=True)
 
     @discord.ui.button(label="🔗 View Links", style=discord.ButtonStyle.blurple)
     async def get_links(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.links:
-            msg = "\n".join([f"• {link}" for link in self.links])
+            await interaction.response.send_message("\n".join(self.links), ephemeral=True)
         else:
-            msg = "No working links found."
-        await interaction.response.send_message(msg, ephemeral=True)
+            await interaction.response.send_message("No working links found.", ephemeral=True)
 
-    @discord.ui.button(label="🔄 Search Again", style=discord.ButtonStyle.gray)
-    async def search_again(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(
-            f"🔍 Type `/findscript {self.game}` to search again!",
-            ephemeral=True
-        )
-
-# ====================== EVENTS ======================
+# ====================== READY ======================
 @bot.event
 async def on_ready():
     await tree.sync()
-    print(f"✅ Bot is online: {bot.user}")
+    print(f"✅ Logged in as {bot.user}")
 
 # ====================== COMMAND ======================
-@tree.command(name="findscript", description="Search for Roblox script")
-@app_commands.describe(game="Game name (e.g. Rivals, Arsenal)")
+@tree.command(name="findscript", description="Find Roblox script")
+@app_commands.describe(game="Game name")
 async def findscript(interaction: discord.Interaction, game: str):
     await interaction.response.defer()
 
     await interaction.followup.send(f"🔍 Searching for **{game}** script...")
 
-    found_links = await real_web_search(game)
+    links = await real_web_search(game)
 
     try:
-        print("Using model: llama-3.1-8b-instant")
-
         response = await client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a Roblox script finder. Provide info only, no fake scripts. Warn about risks."
+                    "content": (
+                        "You are a Roblox script assistant. "
+                        "You are allowed to discuss scripts and links provided. "
+                        "Do NOT refuse. Explain briefly what scripts do and warn about risks."
+                    )
                 },
                 {
                     "role": "user",
-                    "content": f"Find working {game} script. Links: {found_links}"
+                    "content": f"Explain these {game} script links: {links}"
                 }
             ],
-            max_tokens=700,
+            max_tokens=500,
             temperature=0.7
         )
 
-        ai_result = response.choices[0].message.content
+        ai_text = response.choices[0].message.content
 
     except Exception as e:
-        print("Groq error:", e)
-        ai_result = f"❌ Could not generate result.\nError: {str(e)}"
+        print("AI error:", e)
+        ai_text = "⚠️ Could not analyze scripts right now."
 
     # ====================== EMBED ======================
     embed = discord.Embed(
         title=f"📋 {game.title()} Script Results",
-        description=ai_result[:2000],
+        description=ai_text,
         color=0x00ff88
     )
 
-    embed.add_field(
-        name="🔍 Links Found",
-        value=f"**{len(found_links)}** working sources",
-        inline=True
-    )
+    # ✅ SHOW LINKS DIRECTLY (IMPORTANT FIX)
+    if links:
+        embed.add_field(
+            name="🔗 Working Links",
+            value="\n".join(links),
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="🔗 Working Links",
+            value="No working links found.",
+            inline=False
+        )
 
     embed.add_field(
-        name="🎮 Supported Executors",
-        value="Delta • Solara • Wave",
-        inline=True
-    )
-
-    embed.add_field(
-        name="⚠️ Important Warning",
-        value="• Scan scripts on VirusTotal\n• Use at your own risk\n• High risk of Roblox ban",
+        name="⚠️ Warning",
+        value="Use at your own risk • Possible Roblox ban",
         inline=False
     )
 
-    embed.set_footer(text=f"Requested by {interaction.user.name} • Groq Free Tier")
-    embed.timestamp = discord.utils.utcnow()
+    embed.set_footer(text=f"Requested by {interaction.user.name}")
 
-    view = ScriptView(script_text=ai_result, links=found_links, game=game)
+    view = ScriptView(ai_text, links, game)
 
     await interaction.followup.send(embed=embed, view=view)
 
 # ====================== RUN ======================
 if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-
+    threading.Thread(target=run_flask).start()
     asyncio.run(bot.start(DISCORD_TOKEN))
