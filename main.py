@@ -64,15 +64,12 @@ class ScriptView(discord.ui.View):
 
     @discord.ui.button(label="🔄 Search Again", style=discord.ButtonStyle.gray)
     async def search_again(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(
-            f"🔍 Type `/findscript {self.game}` again or choose a new game!", 
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"🔍 Type `/findscript {self.game}` to search again!", ephemeral=True)
 
 @bot.event
 async def on_ready():
     await tree.sync()
-    print(f"✅ Bot is online: {bot.user} | Deployed on Render")
+    print(f"✅ Bot is online: {bot.user} | Free Tier Mode")
 
 @tree.command(name="findscript", description="Search for Roblox script")
 @app_commands.describe(game="Game name (e.g. Rivals, Arsenal)")
@@ -84,18 +81,19 @@ async def findscript(interaction: discord.Interaction, game: str):
 
     try:
         response = await client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="llama-3.1-8b-instant",   # ← Best for Free Tier (mabilis at stable)
             messages=[
-                {"role": "system", "content": "You are a helpful Roblox script finder. Provide useful info and always warn users."},
+                {"role": "system", "content": "You are a helpful Roblox script finder. Provide useful info and always warn users about risks."},
                 {"role": "user", "content": f"Find working {game} script for Delta executor. Links: {found_links}"}
             ],
-            max_tokens=900
+            max_tokens=800,
+            temperature=0.7
         )
         ai_result = response.choices[0].message.content
     except Exception as e:
-        ai_result = f"Could not generate result right now. Error: {str(e)}"
+        ai_result = f"Could not generate result right now.\nError: {str(e)}"
 
-    # Improved Beautiful Embed
+    # Beautiful Embed
     embed = discord.Embed(
         title=f"📋 {game.title()} Script Results",
         description=ai_result[:2000] + "..." if len(ai_result) > 2000 else ai_result,
@@ -108,7 +106,7 @@ async def findscript(interaction: discord.Interaction, game: str):
         value="• Scan every script on VirusTotal\n• Use at your own risk\n• High risk of Roblox ban",
         inline=False
     )
-    embed.set_footer(text=f"Requested by {interaction.user.name} • Powered by Groq AI")
+    embed.set_footer(text=f"Requested by {interaction.user.name} • Groq Free Tier")
     embed.timestamp = discord.utils.utcnow()
 
     view = ScriptView(script_text=ai_result, links=found_links, game=game)
